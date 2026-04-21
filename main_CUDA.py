@@ -143,14 +143,25 @@ class MusicGEN(nn.Module):
             loss = F.cross_entropy(logits, target)
         return logits, loss
 
-    def generate(self, idx, max_new_tokens):
+    def generate(self, idx, max_new_tokens,temperature=0.8,top_k=15):
         self.eval()
         for _ in range(max_new_tokens):
             # Le contexte s'allonge à chaque étape
             idx_cond = idx[:, -self.block_size:]
-            logits, _ = self(idx_cond)
+            with torch.no_grad():
+                logits, _ = self(idx_cond)
             # La cible est toujours le token immédiatement après ce contexte
             logits = logits[:, -1, :]
+
+            #temperature
+            logits = logits / temperature
+
+
+            #top k
+            v, _ = torch.topk(logits, top_k)
+            logits[logits < v[:, -1, None]] = -float('inf') # token en dessous du top k sont mis à -inf pour ne pas être choisis
+
+
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
@@ -271,13 +282,13 @@ class MusicGeneratorPipeline:
         print(f"modèle chargé depuis : {filepath}")
 
 
-    def generate_music(self, start_tokens, max_new_tokens=500, output_file="output/musique.mid"):
+    def generate_music(self, start_tokens, max_new_tokens=500, output_file="output/musique.mid", temperature=0.8, top_k=15):
         token_ids = [self.dataset.tokenizer[t] for t in start_tokens]
-
+    
         # context tensor 
         context = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 
-        gen_ids = self.model.generate(context, max_new_tokens)
+        gen_ids = self.model.generate(context, max_new_tokens, temperature=temperature, top_k=top_k)
         ids_list = gen_ids[0].tolist()
 
         # Creation d'un objet TokSequence avec notre liste
@@ -292,15 +303,15 @@ class MusicGeneratorPipeline:
 
 if __name__ == "__main__":
     # hyperparametres du modele
-    block_size = 2048   # lonugueur du contexte musical lu d'un coup
-    n_embd = 768        # dimenson des vecteurs
-    n_head = 16         # nombre de têtes d'attention
-    n_layer = 16       # nombre de couches
-    dropout = 0.2     # taux de dropout 
+    block_size = 512   # lonugueur du contexte musical lu d'un coup
+    n_embd = 256        # dimenson des vecteurs
+    n_head = 8         # nombre de têtes d'attention
+    n_layer = 8       # nombre de couches
+    dropout = 0.1     # taux de dropout 
 
     # hyperparametres d'entrainement
     batch_size = 128         # taille des batchs
-    max_iters = 50000      # nombre d'étapes d'entrainement
+    max_iters = 55000      # nombre d'étapes d'entrainement
     learning_rate = 6e-4     # learning rate maximal
     min_lr = 3e-5            # learning rate minimal 
     warmup_iters = 2000      # nombre d'étapes d'echauffement
@@ -313,12 +324,15 @@ if __name__ == "__main__":
     pipeline = MusicGeneratorPipeline(path=data_path, block_size=block_size, batch_size=batch_size, n_embd=n_embd, n_head=n_head, n_layers=n_layer, dropout=dropout)
     
     # Train
-    pipeline.train_model(epochs=max_iters, learning_rate=learning_rate, min_lr=min_lr, warmup_iters=warmup_iters, weight_decay=weight_decay)
+    #pipeline.train_model(epochs=max_iters, learning_rate=learning_rate, min_lr=min_lr, warmup_iters=warmup_iters, weight_decay=weight_decay)
     
     #sauvegarde des poids
-    pipeline.save_model("output/music_model_maximus.pth")
+    #pipeline.save_model("output/music_model_maximus.pth")
+    
+    #loqd
+    pipeline.load_model("output/music_model_best.pth")
     
     #generation
     amorce_silence = ["Bar_None", "Position_16"]
-    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus.mid")
+    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp.mid", temperature=0.8, top_k=15)
 
