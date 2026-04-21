@@ -320,7 +320,7 @@ if __name__ == "__main__":
     # Pipeline
     torch.cuda.empty_cache()
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(SCRIPT_DIR, "data")
+    data_path = os.path.join(SCRIPT_DIR, "test data")
     pipeline = MusicGeneratorPipeline(path=data_path, block_size=block_size, batch_size=batch_size, n_embd=n_embd, n_head=n_head, n_layers=n_layer, dropout=dropout)
     
     # Train
@@ -334,5 +334,5 @@ if __name__ == "__main__":
     
     #generation
     amorce_silence = ["Bar_None", "Position_16"]
-    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp.mid", temperature=0.8, top_k=15)
+    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp_best_09.mid", temperature=0.9, top_k=15)
 
