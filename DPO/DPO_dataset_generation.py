@@ -3,6 +3,8 @@ import random
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification
 
+from main import MusicGeneratorPipeline
+
 def generate_dpo_dataset(
     maestro_tokens_list, 
     generator_model, 
@@ -74,12 +76,13 @@ def generate_dpo_dataset(
 if __name__ == "__main__":
     # load the full dataset from the file maximus_dpo_preferences.pt
     full_dataset = torch.load(
-        "/Users/aiminemeddeb/Documents/converting-MidiBERT-into-a-Judge/data_generation/maestro_tokenized_complet.pt",
+        r"C:\Users\lab-erima\Documents\Aimine\tests\converting-MidiBERT-into-a-Judge\data_generation\maestro_tokenized_complet.pt",
         weights_only=False
     )
-    generator_model = torch.load("output/music_model_best.pth", weights_only=False)
+    generator_model =MusicGeneratorPipeline(path=r"C:\Users\lab-erima\Documents\Aimine\tests\Music_Generation_Transformers\data", block_size=64, batch_size=16, n_embd=256, n_head=4, n_layers=4, dropout=0.1)
+    generator_model.load_model("output/music_model_best.pth")
     
-    judge_model_path = "/Users/aiminemeddeb/Documents/converting-MidiBERT-into-a-Judge/midibert_judge_best"
+    judge_model_path = r"C:\\Users\\lab-erima\\Documents\\Aimine\\tests\\converting-MidiBERT-into-a-Judge\\midibert_judge_best"
     try:
         judge_model = AutoModelForSequenceClassification.from_pretrained(
             judge_model_path,
@@ -93,8 +96,8 @@ if __name__ == "__main__":
         )
 
     if torch.cuda.is_available():
-        judge_model = judge_model.cuda()
-        generator_model = generator_model.cuda()
+        judge_model = judge_model.to("cuda")
+        generator_model = generator_model.to("cuda")
         print("Using CUDA")
     elif torch.backends.mps.is_available():
         judge_model = judge_model.to("mps")
