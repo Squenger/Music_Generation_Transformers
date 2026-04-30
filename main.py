@@ -145,6 +145,26 @@ class MusicGEN(nn.Module):
             logits, _ = self(idx_cond)
             # La cible est toujours le token immédiatement après ce contexte
             logits = logits[:, -1, :]
+
+
+            #top p : parmis ces k meilleurs notes, si la distribution de probabilité est
+            #très piquée autour de quelques notes, on prend celles dont la somme des probabilités
+            # est représente un large majorité (90% par exemple)
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+            sorted_probs = F.softmax(sorted_logits, dim=-1)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+            ndices = cumulative_probs > top_k
+            
+            #Dans le cas où dès la première probabilité on dépasse top_k, le masque va supprimer toutes les notes m
+            #les la plus probable.
+            indices[:,1:] = indices[:, :-1] #on décale tous les indices vers la droite en copiant le premier
+            indices[:,0] = False #on met le premier indice à False pour ne pas supprimer le premier choix
+            
+            logits[indices] = -float('inf') # token en dessous du top k sont mis à -inf pour ne pas être choisis
+            
+
+
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
