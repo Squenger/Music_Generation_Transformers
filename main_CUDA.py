@@ -143,7 +143,7 @@ class MusicGEN(nn.Module):
             loss = F.cross_entropy(logits, target)
         return logits, loss
 
-    def generate(self, idx, max_new_tokens,temperature=0.8,top_k=15):
+    def generate(self, idx, max_new_tokens,temperature=0.8,top_k=25,top_p=0.95):
         self.eval()
         for _ in range(max_new_tokens):
             # Le contexte s'allonge à chaque étape
@@ -169,13 +169,15 @@ class MusicGEN(nn.Module):
             sorted_probs = F.softmax(sorted_logits, dim=-1)
             cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
             
-            indices = cumulative_probs > top_k
+            indices = cumulative_probs > top_p
             
-            #Dans le cas où dès la première probabilité on dépasse top_k, le masque va supprimer toutes les notes m
-            #les la plus probable.
-            indices[:,1:] = indices[:, :-1] #on décale tous les indices vers la droite en copiant le premier
+            #Dans le cas où dès la première probabilité on dépasse top_k, le masque va supprimer toutes les notes meme
+            #les plus probable.
+            indices = torch.roll(indices, shifts=1, dims=1) #on décale tous les indices vers la droite en copiant le premier
             indices[:,0] = False #on met le premier indice à False pour ne pas supprimer le premier choix
             
+            indices =indices.scatter(1, sorted_indices, indices)
+
             logits[indices] = -float('inf') # token en dessous du top k sont mis à -inf pour ne pas être choisis
             
 
@@ -200,10 +202,15 @@ class MusicGeneratorPipeline:
         else:
             self.device = torch.device('cpu')
             print("Using CPU ")
-            
-        self.dataset = MusicDataset(path, block_size, batch_size)
+        if path is not None:   
+            self.dataset = MusicDataset(path, block_size, batch_size)
+            self.vocab_size = self.dataset.vocab_size
+        else :
+            self.vocab_size = len(REMI())
+
+        
         self.model = MusicGEN(
-            self.dataset.vocab_size, 
+            self.vocab_size, 
             block_size, 
             n_embd, 
             n_head, 
@@ -299,13 +306,13 @@ class MusicGeneratorPipeline:
         print(f"modèle chargé depuis : {filepath}")
 
 
-    def generate_music(self, start_tokens, max_new_tokens=500, output_file="output/musique.mid", temperature=0.8, top_k=15):
+    def generate_music(self, start_tokens, max_new_tokens=500, output_file="output/musique.mid", temperature=0.8, top_k=25, top_p=0.95):
         token_ids = [self.dataset.tokenizer[t] for t in start_tokens]
     
         # context tensor 
         context = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 
-        gen_ids = self.model.generate(context, max_new_tokens, temperature=temperature, top_k=top_k)
+        gen_ids = self.model.generate(context, max_new_tokens, temperature=temperature, top_k=top_k, top_p=top_p)
         ids_list = gen_ids[0].tolist()
 
         # Creation d'un objet TokSequence avec notre liste
@@ -351,5 +358,5 @@ if __name__ == "__main__":
     
     #generation
     amorce_silence = ["Bar_None", "Position_16"]
-    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp_best_09.mid", temperature=0.9, top_k=15)
+    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp_best_09.mid", temperature=0.9, top_k=25, top_p=0.95)
 
