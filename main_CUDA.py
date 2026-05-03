@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import matplotlib.pyplot as plt
 from miditok import REMI, TokSequence
 import symusic
 from symusic import Score
@@ -143,14 +144,12 @@ class MusicGEN(nn.Module):
             loss = F.cross_entropy(logits, target)
         return logits, loss
 
-    def generate(self, idx, max_new_tokens,temperature=0.8,top_k=25,top_p=0.95):
+    def generate(self, idx, max_new_tokens,temperature=0.9,top_k=15,top_p=0.95):
         self.eval()
         for _ in range(max_new_tokens):
-            # Le contexte s'allonge à chaque étape
             idx_cond = idx[:, -self.block_size:]
             with torch.no_grad():
                 logits, _ = self(idx_cond)
-            # La cible est toujours le token immédiatement après ce contexte
             logits = logits[:, -1, :]
 
             #temperature
@@ -260,6 +259,9 @@ class MusicGeneratorPipeline:
         
         self.model.train()
         best_val_loss = float('inf')
+        train_loss_history = []
+        val_loss_history = []
+        epochs_log = []
         
         for epoch in range(epochs):
             # MAJ du lr
@@ -275,6 +277,8 @@ class MusicGeneratorPipeline:
             with torch.autocast(device_type=autocast_device, dtype=torch.bfloat16): # bfloat16 est un format de nombre flottant qui permet de réduire la taille des données et d'accelerer les calculs
                 logits, loss = self.model(Xb, Yb)
             
+            train_loss_value = loss.item()
+            
             # Backward pass
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -286,15 +290,33 @@ class MusicGeneratorPipeline:
             
             if epoch % 500 == 0:
                 val_loss = estimate_val_loss(num_batches=10)
-                print(f"Step {epoch:5d} | Train Loss: {loss.item():.4f} | Val Loss: {val_loss:.4f} | LR: {lr:.4e}")
+                train_loss_history.append(train_loss_value)
+                val_loss_history.append(val_loss)
+                epochs_log.append(epoch)
+                print(f"Step {epoch:5d} | Train Loss: {train_loss_value:.4f} | Val Loss: {val_loss:.4f}")
                 
-                # Sauvegarde du meilleur modèle
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     self.save_model("output/music_model_best.pth")
-                    print(f"  -> meilleur model sauvegardé (Val Loss: {val_loss:.4f})")
-                
-        print(f"Entraînement terminé - final Loss: {loss.item():.4f} - final validation loss :{val_loss:.4f} best Val Loss: {best_val_loss:.4f}")
+                    print(f" meilleur model sauvegardé (Val Loss: {val_loss:.4f})")
+        
+        plt.figure(figsize=(12, 6))
+        plt.plot(epochs_log, train_loss_history, label='Training Loss', marker='o', linewidth=2, color='blue')
+        plt.plot(epochs_log, val_loss_history, label='Validation Loss', marker='s', linewidth=2, color='red')
+        plt.xlabel('Epoch', fontsize=12)
+        plt.ylabel('Loss', fontsize=12)
+        plt.title('Training and Validation Loss', fontsize=14)
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        os.makedirs('output', exist_ok=True)
+        curve_path = 'output/training_validation_loss_curve.png'
+        plt.savefig(curve_path, dpi=150)
+        print(f"Loss curve saved to: {curve_path}")
+        plt.close()
+        
+        print(f"Entraînement terminé - final Loss: {train_loss_value:.4f} - final validation loss :{val_loss:.4f} best Val Loss: {best_val_loss:.4f}")
 
     def save_model(self, filepath="output/music_model.pth"):
         os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
@@ -335,7 +357,7 @@ if __name__ == "__main__":
 
     # hyperparametres d'entrainement
     batch_size = 128         # taille des batchs
-    max_iters = 55000      # nombre d'étapes d'entrainement
+    max_iters = 60000      # nombre d'étapes d'entrainement
     learning_rate = 6e-4     # learning rate maximal
     min_lr = 3e-5            # learning rate minimal 
     warmup_iters = 2000      # nombre d'étapes d'echauffement
@@ -344,19 +366,19 @@ if __name__ == "__main__":
     # Pipeline
     torch.cuda.empty_cache()
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(SCRIPT_DIR, "test data")
+    data_path = os.path.join(SCRIPT_DIR, "data\\maestro-v3.0.0")
     pipeline = MusicGeneratorPipeline(path=data_path, block_size=block_size, batch_size=batch_size, n_embd=n_embd, n_head=n_head, n_layers=n_layer, dropout=dropout)
     
     # Train
-    #pipeline.train_model(epochs=max_iters, learning_rate=learning_rate, min_lr=min_lr, warmup_iters=warmup_iters, weight_decay=weight_decay)
+    pipeline.train_model(epochs=max_iters, learning_rate=learning_rate, min_lr=min_lr, warmup_iters=warmup_iters, weight_decay=weight_decay)
     
     #sauvegarde des poids
-    #pipeline.save_model("output/music_model_maximus.pth")
+    pipeline.save_model("output/music_model_maximus_60000_iters.pth")
     
     #loqd
-    pipeline.load_model("output/music_model_best.pth")
+    #pipeline.load_model("output/music_model_best.pth")
     
     #generation
-    amorce_silence = ["Bar_None", "Position_16"]
-    pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp_best_09.mid", temperature=0.9, top_k=25, top_p=0.95)
+    #amorce_silence = ["Bar_None", "Position_16"]
+    #pipeline.generate_music(amorce_silence, max_new_tokens=1000, output_file="output/musique_maximus_topk_temp_best_09.mid", temperature=0.9, top_k=25, top_p=0.95)
 
